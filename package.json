@@ -1,0 +1,31 @@
+{
+  "name": "overlay-player",
+  "version": "1.0.0",
+  "description": "Overlay Player - gamepad overlay window for OBS Window Capture",
+  "author": "overlay-player",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable --publish never"
+  },
+  "devDependencies": {
+    "electron": "31.7.7",
+    "electron-builder": "24.13.3"
+  },
+  "build": {
+    "appId": "com.overlayplayer.app",
+    "productName": "OverlayPlayer",
+    "files": [
+      "main.js",
+      "index.html",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "OverlayPlayer.exe"
+    }
+  }
+}
