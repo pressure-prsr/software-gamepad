@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Overlay Player</title>
+<!--
+  Overlay Player - MIT License. One file, no dependencies.
+  Paste the link of any gamepad overlay page (or paste its HTML code) and it
+  shows instantly. Use OBS "Window Capture" on this window.
+  Options: ?url=https://...&bg=00ff00&size=1280x720
+-->
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#111;color:#dde;font:13px system-ui,sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column}
+#bar{display:flex;flex-wrap:wrap;gap:6px;padding:8px;background:#0d0f13;border-bottom:1px solid #2a2e38;align-items:center}
+#bar[hidden]{display:none}
+input,select,button{font:inherit;padding:7px 9px;border-radius:6px;border:1px solid #3a4050;background:#1b1e26;color:#fff;min-width:0}
+#url{flex:1 1 220px}
+button{background:#0a7;border:0;font-weight:700}
+button.g{background:#2a2e38;font-weight:500}
+#cc{padding:0;width:36px;height:34px}
+#stat{font-size:12px;color:#8a93a6;margin-left:auto}
+#stage{flex:1;position:relative;overflow:hidden;background:#00ff00}
+#frame{position:absolute;border:0;background:transparent;transform-origin:0 0}
+#hot{position:fixed;top:0;left:0;right:0;height:14px;z-index:5}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;color:#000a;padding:20px;font-weight:600;pointer-events:none}
+#dlg{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:9;padding:12px}
+#dlg.on{display:flex}
+#dlg div{background:#14161b;border:1px solid #3a4050;border-radius:10px;padding:12px;width:min(640px,100%)}
+textarea{width:100%;height:42vh;background:#0d0f13;color:#9fe;border:1px solid #3a4050;border-radius:6px;font:12px ui-monospace,monospace;padding:8px}
+</style>
+</head>
+<body>
+<div id="bar">
+  <input id="url" type="text" inputmode="url" placeholder="Paste overlay link (https://…)" autocomplete="off">
+  <button id="go">Load</button>
+  <button id="html" class="g">Paste HTML</button>
+  <select id="hist"><option value="">History</option></select>
+  <select id="size">
+    <option value="free">Size: Free (fill window)</option>
+    <option value="1920x1080">1920×1080</option>
+    <option value="1280x720">1280×720</option>
+    <option value="800x450">800×450</option>
+    <option value="600x600">600×600</option>
+    <option value="500x300">500×300</option>
+  </select>
+  <select id="bg">
+    <option value="00ff00">BG: Green</option>
+    <option value="ff00ff">BG: Magenta</option>
+    <option value="0000ff">BG: Blue</option>
+    <option value="000000">BG: Black</option>
+    <option value="808080">BG: Gray</option>
+    <option value="ffffff">BG: White</option>
+    <option value="custom">BG: Custom…</option>
+  </select>
+  <input id="cc" type="color" value="#00ff00" hidden>
+  <button id="pop" class="g">Pop-out window</button>
+  <button id="copy" class="g">Copy OBS link</button>
+  <button id="fs" class="g">Fullscreen</button>
+  <button id="hide" class="g">Hide bar</button>
+  <span id="stat"></span>
+</div>
+<div id="hot"></div>
+<div id="stage">
+  <div id="empty">Paste your overlay link above and press Load.<br>Then in OBS: Window Capture → this window → Chroma Key.</div>
+  <iframe id="frame" allow="gamepad *; fullscreen; autoplay" hidden></iframe>
+</div>
+<div id="dlg"><div>
+  <p>Paste the full HTML code of your overlay:</p>
+  <textarea id="code" spellcheck="false" placeholder="<!doctype html>…"></textarea>
+  <p><button id="runhtml">Show</button> <button id="closehtml" class="g">Cancel</button></p>
+</div></div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const Q=new URLSearchParams(location.search);
+const store={
+  get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},
+  set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+};
+const frame=$('frame'),stage=$('stage'),bar=$('bar');
+let cfg=Object.assign({bg:'00ff00',size:'free'},store.get('op_cfg',{}));
+if(Q.get('bg'))cfg.bg=Q.get('bg').replace('#','');
+if(Q.get('size'))cfg.size=Q.get('size');
+
+function applyBg(){
+  stage.style.background='#'+cfg.bg;
+  const known=[...$('bg').options].some(o=>o.value===cfg.bg);
+  $('bg').value=known?cfg.bg:'custom';
+  if(!known)$('cc').value='#'+cfg.bg;
+}
+function fit(){
+  const cw=stage.clientWidth,ch=stage.clientHeight;
+  if(cfg.size==='free'||!/^\d+x\d+$/.test(cfg.size)){
+    Object.assign(frame.style,{left:0,top:0,width:'100%',height:'100%',transform:'none'});
+    return;
+  }
+  const [w,h]=cfg.size.split('x').map(Number);
+  const s=Math.min(cw/w,ch/h);
+  Object.assign(frame.style,{width:w+'px',height:h+'px',transform:`scale(${s})`,left:(cw-w*s)/2+'px',top:(ch-h*s)/2+'px'});
+}
+function save(){store.set('op_cfg',cfg)}
+function norm(u){
+  u=u.trim();if(!u)return'';
+  if(!/^[a-z]+:\/\//i.test(u))u='https://'+u;
+  return u;
+}
+function history(){
+  const h=store.get('op_hist',[]);
+  $('hist').innerHTML='<option value="">History</option>'+h.map(u=>'<option></option>').join('');
+  [...$('hist').options].slice(1).forEach((o,i)=>{o.value=o.textContent=h[i]});
+}
+function addHist(u){
+  let h=store.get('op_hist',[]).filter(x=>x!==u);h.unshift(u);store.set('op_hist',h.slice(0,15));history();
+}
+function show(){$('empty').style.display='none';frame.hidden=false;fit()}
+function load(u){
+  u=norm(u);if(!u)return;
+  $('url').value=u;frame.removeAttribute('srcdoc');frame.src=u;show();addHist(u);
+  try{history_replace(u)}catch(e){}
+}
+function history_replace(u){const n=new URL(location.href);n.searchParams.set('url',u);window.history.replaceState(null,'',n)}
+
+$('go').onclick=()=>load($('url').value);
+$('url').addEventListener('keydown',e=>{if(e.key==='Enter')load($('url').value)});
+$('hist').onchange=e=>{if(e.target.value)load(e.target.value)};
+$('size').onchange=e=>{cfg.size=e.target.value;save();fit()};
+$('bg').onchange=e=>{
+  if(e.target.value==='custom'){$('cc').hidden=false;$('cc').click();return}
+  cfg.bg=e.target.value;save();applyBg();
+};
+$('cc').oninput=e=>{cfg.bg=e.target.value.replace('#','');save();applyBg()};
+$('fs').onclick=()=>{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{})};
+$('hide').onclick=()=>{bar.hidden=true;fit()};
+$('hot').onmouseenter=()=>{if(bar.hidden){bar.hidden=false;fit()}};
+$('hot').onclick=()=>{bar.hidden=!bar.hidden;fit()};
+addEventListener('keydown',e=>{if(e.key==='h'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){bar.hidden=!bar.hidden;fit()}});
+addEventListener('resize',fit);
+new ResizeObserver(fit).observe(stage);
+
+// Pop-out: its own window (not a tab), so it keeps rendering when you switch tabs
+$('pop').onclick=()=>{window.open(location.href,'op_popup','popup=yes,width=1280,height=720')};
+// Direct overlay link: paste into OBS "Browser" source (works without window focus)
+$('copy').onclick=async()=>{
+  const u=norm($('url').value);
+  if(!u){alert('Load a link first (HTML code has no link).');return}
+  try{await navigator.clipboard.writeText(u);$('copy').textContent='Copied ✓'}catch(e){prompt('Copy this link:',u)}
+  setTimeout(()=>$('copy').textContent='Copy OBS link',1500);
+};
+
+$('html').onclick=()=>$('dlg').classList.add('on');
+$('closehtml').onclick=()=>$('dlg').classList.remove('on');
+$('runhtml').onclick=()=>{
+  const c=$('code').value;if(!c.trim())return;
+  frame.removeAttribute('src');frame.srcdoc=c;show();$('dlg').classList.remove('on');
+};
+
+// ---- status: is the gamepad detected, and does this window have focus? ----
+let lastTs=0,lastAt=0;
+setInterval(()=>{
+  const l=(navigator.getGamepads?navigator.getGamepads():[])||[];
+  const g=[...l].find(x=>x&&x.connected);
+  if(g&&g.timestamp!==lastTs){lastTs=g.timestamp;lastAt=Date.now()}
+  const ago=lastAt?Math.round((Date.now()-lastAt)/1000)+'s ago':'–';
+  $('stat').textContent=(g?'🎮 '+g.id.slice(0,22):'🎮 none (press a button)')+(document.hasFocus()?'  ✓ focus':'  ✗ no focus')+'  ⏱ input '+ago;
+},500);
+
+if(/Electron/.test(navigator.userAgent)){const p=document.getElementById('pop');if(p)p.remove();}
+applyBg();$('size').value=cfg.size;history();
+const q=Q.get('url');if(q)load(q);
+})();
+</script>
+</body>
+</html>
